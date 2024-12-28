@@ -32,6 +32,15 @@ int main() {
     printf("Matrix B:\n");
     print_matrix(B);
 
+    Matrix* I = create_identity_matrix(2);
+    printf("Matrix I:\n");
+    print_matrix(I);
+
+    double a_trace = trace(A);
+    double a_det = determinant(A);
+    printf("A trace: %.2f\n", a_trace);
+    printf("A determinant: %.2f\n", a_det);
+ 
     Matrix* C = matrix_add(A, B);
     if (C) {
         printf("A + B:\n");
@@ -73,7 +82,6 @@ int main() {
         print_matrix(H);
         free_matrix(H);
     }
-
 
     free_matrix(A);
     free_matrix(B);

@@ -11,6 +11,8 @@ typedef struct {
 
 // prototypes
 Matrix* create_matrix(size_t rows, size_t cols);
+Matrix* create_identity_matrix(size_t n);
+Matrix* create_constant_matrix(size_t rows, size_t cols, double value);
 void free_matrix(Matrix* mat);
 
 Matrix* matrix_add(const Matrix* A, const Matrix* B);
@@ -18,6 +20,9 @@ Matrix* matrix_sub(const Matrix* A, const Matrix* B);
 Matrix* matrix_mult(const Matrix* A, const Matrix* B);
 Matrix* matrix_transpose(const Matrix* A);
 Matrix* matrix_inverse(const Matrix* A);
+int lu_decomposition(const Matrix* A, Matrix* L, Matrix* U);
+double determinant(const Matrix* A);
+double trace(const Matrix* A);
 
 static inline double get_element(const Matrix* mat, size_t i, size_t j) {
     return mat->data[i * mat->cols + j];
