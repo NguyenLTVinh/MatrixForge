@@ -1,4 +1,5 @@
 #include "matrix.h"
+#include "vector.h"
 #include <stdio.h>
 #include <omp.h>
 #include <string.h>
@@ -302,4 +303,46 @@ double trace(const Matrix* A) {
         tr += get_element(A, i, i);
     }
     return tr;
+}
+
+/**
+ * @brief Return a row from the matrix as a vector.
+ *
+ * @param mat Pointer to the matrix.
+ * @param row Index of the row to extract.
+ * @return Pointer to the newly created vector containing the row, or NULL if the row index is out of bounds.
+ */
+Vector* get_row_vector(const Matrix* mat, size_t row) {
+    if (row >= mat->rows) {
+        fprintf(stderr, "Row index out of bounds.\n");
+        return NULL;
+    }
+
+    Vector* row_vector = create_vector(mat->cols);
+    for (size_t j = 0; j < mat->cols; j++) {
+        set_vector_element(row_vector, j, get_element(mat, row, j));
+    }
+
+    return row_vector;
+}
+
+/**
+ * @brief Return a column from the matrix as a vector.
+ *
+ * @param mat Pointer to the matrix.
+ * @param col Index of the column to extract.
+ * @return Pointer to the newly created vector containing the column, or NULL if the column index is out of bounds.
+ */
+Vector* get_column_vector(const Matrix* mat, size_t col) {
+    if (col >= mat->cols) {
+        fprintf(stderr, "Column index out of bounds.\n");
+        return NULL;
+    }
+
+    Vector* col_vector = create_vector(mat->rows);
+    for (size_t i = 0; i < mat->rows; i++) {
+        set_vector_element(col_vector, i, get_element(mat, i, col));
+    }
+
+    return col_vector;
 }

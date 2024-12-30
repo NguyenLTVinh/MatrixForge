@@ -2,6 +2,7 @@
 #define MATRIX_H
 
 #include <stdlib.h>
+#include "vector.h"
 
 typedef struct {
     size_t rows;
@@ -23,6 +24,9 @@ Matrix* matrix_inverse(const Matrix* A);
 int lu_decomposition(const Matrix* A, Matrix* L, Matrix* U);
 double determinant(const Matrix* A);
 double trace(const Matrix* A);
+
+Vector* get_row_vector(const Matrix* mat, size_t row);
+Vector* get_column_vector(const Matrix* mat, size_t col);
 
 static inline double get_element(const Matrix* mat, size_t i, size_t j) {
     return mat->data[i * mat->cols + j];
