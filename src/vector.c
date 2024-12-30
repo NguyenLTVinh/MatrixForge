@@ -89,25 +89,3 @@ int normalize(Vector* vec) {
     }
     return 0;
 }
-
-/**
- * @brief Get an element from a vector.
- *
- * @param vec Pointer to the vector.
- * @param i Index of the element to get.
- * @return The value of the element.
- */
-static inline double get_vector_element(const Vector* vec, size_t i) {
-    return vec->data[i];
-}
-
-/**
- * @brief Set an element in a vector.
- *
- * @param vec Pointer to the vector.
- * @param i Index of the element to set.
- * @param value Value to set the element to.
- */
-static inline void set_vector_element(Vector* vec, size_t i, double value) {
-    vec->data[i] = value;
-}

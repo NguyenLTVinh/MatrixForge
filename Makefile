@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -O2 -fopenmp -Iinc
+LDFLAGS = -lm
 SRC_DIR = src
 INC_DIR = inc
 BUILD_DIR = build
@@ -11,7 +12,7 @@ TARGET = $(BIN_DIR)/matrix_test
 all: $(TARGET)
 
 $(TARGET): $(OBJ_FILES) $(BUILD_DIR)/main.o | $(BIN_DIR)
-	$(CC) $(CFLAGS) $^ -o $@
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@

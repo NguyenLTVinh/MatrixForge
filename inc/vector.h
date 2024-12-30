@@ -15,7 +15,13 @@ void free_vector(Vector* vec);
 double dot_product(const Vector* v1, const Vector* v2);
 Vector* cross_product(const Vector* v1, const Vector* v2);
 int normalize(Vector* vec);
-static inline double get_vector_element(const Vector* vec, size_t i);
-static inline void set_vector_element(Vector* vec, size_t i, double value);
+
+static inline double get_vector_element(const Vector* vec, size_t i) {
+    return vec->data[i];
+}
+
+static inline void set_vector_element(Vector* vec, size_t i, double value) {
+    vec->data[i] = value;
+}
 
 #endif // VECTOR_H

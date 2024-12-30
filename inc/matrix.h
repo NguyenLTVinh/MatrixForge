@@ -22,6 +22,7 @@ Matrix* matrix_mult(const Matrix* A, const Matrix* B);
 Matrix* matrix_transpose(const Matrix* A);
 Matrix* matrix_inverse(const Matrix* A);
 int lu_decomposition(const Matrix* A, Matrix* L, Matrix* U);
+int qr_decomposition(const Matrix* A, Matrix* Q, Matrix* R);
 double determinant(const Matrix* A);
 double trace(const Matrix* A);
 

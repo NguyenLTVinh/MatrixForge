@@ -11,6 +11,13 @@ void print_matrix(const Matrix* mat) {
     }
 }
 
+void print_vector(const Vector* vec) {
+    for (size_t i = 0; i < vec->size; i++) {
+        printf("%.2f ", vec->data[i]);
+    }
+    printf("\n");
+}
+
 int main() {
     printf("Testing matrix library...\n");
 
@@ -82,6 +89,36 @@ int main() {
         print_matrix(H);
         free_matrix(H);
     }
+
+    // Test: get_row_vector
+    Vector* row_vec = get_row_vector(A, 1);
+    if (row_vec) {
+        printf("Row 1 of A:\n");
+        print_vector(row_vec);
+        free_vector(row_vec);
+    }
+
+    // Test: get_column_vector
+    Vector* col_vec = get_column_vector(A, 0);
+    if (col_vec) {
+        printf("Column 0 of A:\n");
+        print_vector(col_vec);
+        free_vector(col_vec);
+    }
+
+    // Test: QR decomposition
+    Matrix* Q = create_matrix(A->rows, A->cols);
+    Matrix* R = create_matrix(A->cols, A->cols);
+    if (qr_decomposition(A, Q, R) == 0) {
+        printf("Matrix Q (QR decomposition):\n");
+        print_matrix(Q);
+        printf("Matrix R (QR decomposition):\n");
+        print_matrix(R);
+    } else {
+        printf("QR decomposition failed.\n");
+    }
+    free_matrix(Q);
+    free_matrix(R);
 
     free_matrix(A);
     free_matrix(B);

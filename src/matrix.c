@@ -265,6 +265,79 @@ int lu_decomposition(const Matrix* A, Matrix* L, Matrix* U) {
 }
 
 /**
+ * @brief Perform QR decomposition on a matrix
+ *
+ * @param A Input matrix.
+ * @param Q Output orthogonal matrix.
+ * @param R Output upper triangular matrix.
+ * @return 0 on success, -1 on failure.
+ */
+int qr_decomposition(const Matrix* A, Matrix* Q, Matrix* R) {
+    if (A->rows != A->cols) {
+        fprintf(stderr, "QR Decomposition requires a square matrix.\n");
+        return -1;
+    }
+
+    size_t n = A->rows;
+
+    if (Q->rows != n || Q->cols != n || R->rows != n || R->cols != n) {
+        fprintf(stderr, "Q and R must match the dimensions of A.\n");
+        return -1;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        Vector* ai = get_column_vector(A, i);
+        Vector* vi = create_vector(n);
+
+        // Copy ai to vi
+        for (size_t j = 0; j < n; j++) {
+            set_vector_element(vi, j, get_vector_element(ai, j));
+        }
+
+        // Orthogonalize against previous q vectors
+        for (size_t j = 0; j < i; j++) {
+            Vector* qj = get_column_vector(Q, j);
+            double dot = dot_product(ai, qj);
+
+            for (size_t k = 0; k < n; k++) {
+                double updated = get_vector_element(vi, k) - dot * get_vector_element(qj, k);
+                set_vector_element(vi, k, updated);
+            }
+            free_vector(qj);
+        }
+
+        // Normalize vi to become qi
+        if (normalize(vi) != 0) {
+            fprintf(stderr, "Failed to normalize vector during QR decomposition.\n");
+            free_vector(ai);
+            free_vector(vi);
+            return -1;
+        }
+
+        for (size_t j = 0; j < n; j++) {
+            set_element(Q, j, i, get_vector_element(vi, j));
+        }
+
+        free_vector(ai);
+        free_vector(vi);
+    }
+
+    // Compute R
+    for (size_t i = 0; i < n; i++) {
+        for (size_t j = i; j < n; j++) {
+            Vector* qi = get_column_vector(Q, i);
+            Vector* aj = get_column_vector(A, j);
+            double r = dot_product(qi, aj);
+            set_element(R, i, j, r);
+            free_vector(qi);
+            free_vector(aj);
+        }
+    }
+
+    return 0;
+}
+
+/**
  * @brief Compute the determinant of a matrix.
  *
  * @param A Pointer to the square matrix.
