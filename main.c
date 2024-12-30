@@ -1,163 +1,195 @@
 #include "matrix.h"
+#include "vector.h"
+#include "neuralnet.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
-void print_matrix(const Matrix* mat) {
-    for (size_t i = 0; i < mat->rows; i++) {
-        for (size_t j = 0; j < mat->cols; j++) {
-            printf("%.2f ", get_element(mat, i, j));
-        }
-        printf("\n");
-    }
+// Util funnctions to load mnist dataset
+uint32_t flip_endian(uint32_t num) {
+    return ((num & 0xFF) << 24) |
+           ((num & 0xFF00) << 8) |
+           ((num & 0xFF0000) >> 8) |
+           ((num & 0xFF000000) >> 24);
 }
 
-void print_vector(const Vector* vec) {
-    for (size_t i = 0; i < vec->size; i++) {
-        printf("%.2f ", vec->data[i]);
+Matrix* load_mnist_images(const char* filename, size_t* num_images, size_t* image_size) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        fprintf(stderr, "Error: Could not open file %s\n", filename);
+        return NULL;
     }
-    printf("\n");
+
+    uint32_t magic_number, num_imgs, rows, cols;
+
+    fread(&magic_number, sizeof(uint32_t), 1, file);
+    fread(&num_imgs, sizeof(uint32_t), 1, file);
+    fread(&rows, sizeof(uint32_t), 1, file);
+    fread(&cols, sizeof(uint32_t), 1, file);
+
+    // Flip endian
+    magic_number = flip_endian(magic_number);
+    num_imgs = flip_endian(num_imgs);
+    rows = flip_endian(rows);
+    cols = flip_endian(cols);
+
+    if (magic_number != 2051) {
+        fprintf(stderr, "Error: Invalid magic number in MNIST image file.\n");
+        fclose(file);
+        return NULL;
+    }
+
+    *num_images = num_imgs;
+    *image_size = rows * cols;
+
+    Matrix* images = create_matrix(*image_size, *num_images);
+
+    for (size_t i = 0; i < *num_images; i++) {
+        for (size_t j = 0; j < *image_size; j++) {
+            unsigned char pixel;
+            fread(&pixel, sizeof(unsigned char), 1, file);
+            set_element(images, j, i, pixel / 255.0); // Normalize to [0, 1]
+        }
+    }
+
+    fclose(file);
+    return images;
+}
+
+Matrix* load_mnist_labels(const char* filename, size_t num_labels) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        fprintf(stderr, "Error: Could not open file %s\n", filename);
+        return NULL;
+    }
+
+    uint32_t magic_number, num_lbls;
+
+    fread(&magic_number, sizeof(uint32_t), 1, file);
+    fread(&num_lbls, sizeof(uint32_t), 1, file);
+
+    // Flip endian for Intel processors
+    magic_number = flip_endian(magic_number);
+    num_lbls = flip_endian(num_lbls);
+
+    if (magic_number != 2049 || num_lbls != num_labels) {
+        fprintf(stderr, "Error: Invalid label file or mismatched label count.\n");
+        fclose(file);
+        return NULL;
+    }
+
+    Matrix* labels = create_matrix(10, num_labels); // One-hot encoding for 10 classes
+
+    for (size_t i = 0; i < num_labels; i++) {
+        unsigned char label;
+        fread(&label, sizeof(unsigned char), 1, file);
+
+        // One-hot encode the label
+        for (size_t j = 0; j < 10; j++) {
+            set_element(labels, j, i, (j == label) ? 1.0 : 0.0);
+        }
+    }
+
+    fclose(file);
+    return labels;
+}
+
+double nnaccuracy(Matrix* predictions, Matrix* labels) {
+    size_t correct = 0;
+    size_t total = predictions->cols;
+
+    for (size_t i = 0; i < total; i++) {
+        double max_pred = 0.0;
+        size_t pred_index = 0;
+
+        double max_label = 0.0;
+        size_t label_index = 0;
+
+        for (size_t j = 0; j < predictions->rows; j++) {
+            double pred_val = get_element(predictions, j, i);
+            double label_val = get_element(labels, j, i);
+
+            if (pred_val > max_pred) {
+                max_pred = pred_val;
+                pred_index = j;
+            }
+            if (label_val > max_label) {
+                max_label = label_val;
+                label_index = j;
+            }
+        }
+
+        if (pred_index == label_index) {
+            correct++;
+        }
+    }
+
+    return (double)correct / total;
 }
 
 int main() {
-    printf("Testing matrix library...\n");
+    const char* train_images_file = "dataset/train-images-idx3-ubyte";
+    const char* train_labels_file = "dataset/train-labels-idx1-ubyte";
+    const char* test_images_file = "dataset/t10k-images-idx3-ubyte";
+    const char* test_labels_file = "dataset/t10k-labels-idx1-ubyte";
 
-    Matrix* A = create_matrix(2, 2);
-    set_element(A, 0, 0, 1.0);
-    set_element(A, 0, 1, 2.0);
-    set_element(A, 1, 0, 3.0);
-    set_element(A, 1, 1, 4.0);
+    // Load datasets
+    size_t num_train_images, train_image_size, num_test_images, test_image_size;
+    Matrix* train_images = load_mnist_images(train_images_file, &num_train_images, &train_image_size);
+    Matrix* train_labels = load_mnist_labels(train_labels_file, num_train_images);
+    Matrix* test_images = load_mnist_images(test_images_file, &num_test_images, &test_image_size);
+    Matrix* test_labels = load_mnist_labels(test_labels_file, num_test_images);
 
-    printf("Matrix A:\n");
-    print_matrix(A);
-
-    Matrix* B = create_matrix(2, 2);
-    set_element(B, 0, 0, 5.0);
-    set_element(B, 0, 1, 6.0);
-    set_element(B, 1, 0, 7.0);
-    set_element(B, 1, 1, 8.0);
-
-    printf("Matrix B:\n");
-    print_matrix(B);
-
-    Matrix* I = create_identity_matrix(2);
-    printf("Matrix I:\n");
-    print_matrix(I);
-
-    double a_trace = trace(A);
-    double a_det = determinant(A);
-    printf("A trace: %.2f\n", a_trace);
-    printf("A determinant: %.2f\n", a_det);
- 
-    Matrix* C = matrix_add(A, B);
-    if (C) {
-        printf("A + B:\n");
-        print_matrix(C);
-        free_matrix(C);
+    if (!train_images || !train_labels || !test_images || !test_labels) {
+        fprintf(stderr, "Failed to load the MNIST dataset.\n");
+        return -1;
     }
 
-    Matrix* D = matrix_sub(A, B);
-    if (D) {
-        printf("A - B:\n");
-        print_matrix(D);
-        free_matrix(D);
+    fprintf(stdout, "MNIST dataset loaded.\n");
+    // Neural network configuration
+    size_t layer_dims[] = {train_image_size, 128, 10}; // 784 input, 128 hidden, 10 output
+    size_t num_layers = sizeof(layer_dims) / sizeof(layer_dims[0]);
+    size_t epochs = 10;
+    double learning_rate = 0.01;
+
+    // Initialize weights and biases
+    Matrix* weights[num_layers];
+    Matrix* biases[num_layers];
+    for (size_t i = 0; i < num_layers; i++) {
+        weights[i] = NULL;
+        biases[i] = NULL;
+    }
+    init_params(weights, biases, layer_dims, num_layers);
+    fprintf(stdout, "NN params configured.\n");
+
+    // Train
+    fprintf(stdout, "Training...\n");
+    train(train_images, train_labels, layer_dims, num_layers, epochs, learning_rate);
+
+    // Test
+    Matrix* test_activations[num_layers];
+    Matrix* test_Zs[num_layers];
+    for (size_t i = 0; i < num_layers; i++) {
+        test_activations[i] = NULL;
+        test_Zs[i] = NULL;
+    }
+    forward_prop(test_images, weights, biases, test_activations, test_Zs, num_layers);
+
+    double accuracy = nnaccuracy(test_activations[num_layers - 1], test_labels);
+    printf("Test Accuracy: %.2f%%\n", accuracy * 100);
+
+    // Clean ups
+    free_matrix(train_images);
+    free_matrix(train_labels);
+    free_matrix(test_images);
+    free_matrix(test_labels);
+
+    for (size_t i = 1; i < num_layers; i++) {
+        if (test_activations[i]) free_matrix(test_activations[i]);
+        if (test_Zs[i]) free_matrix(test_Zs[i]);
+        if (weights[i]) free_matrix(weights[i]);
+        if (biases[i]) free_matrix(biases[i]);
     }
 
-    Matrix* E = matrix_mult(A, B);
-    if (E) {
-        printf("A * B:\n");
-        print_matrix(E);
-        free_matrix(E);
-    }
-
-    Matrix* F = matrix_transpose(A);
-    if (F) {
-        printf("Transpose of A:\n");
-        print_matrix(F);
-        free_matrix(F);
-    }
-
-    Matrix* G = matrix_inverse(A);
-    if (G) {
-        printf("Inverse of A:\n");
-        print_matrix(G);
-        free_matrix(G);
-    }
-
-    Matrix* H = matrix_mult(A, B);
-    if (H) {
-        printf("A x B:\n");
-        print_matrix(H);
-        free_matrix(H);
-    }
-
-    // Test: get_row_vector
-    Vector* row_vec = get_row_vector(A, 1);
-    if (row_vec) {
-        printf("Row 1 of A:\n");
-        print_vector(row_vec);
-        free_vector(row_vec);
-    }
-
-    // Test: get_column_vector
-    Vector* col_vec = get_column_vector(A, 0);
-    if (col_vec) {
-        printf("Column 0 of A:\n");
-        print_vector(col_vec);
-        free_vector(col_vec);
-    }
-
-    // Test: QR decomposition
-    Matrix* Q = create_matrix(A->rows, A->cols);
-    Matrix* R = create_matrix(A->cols, A->cols);
-    if (qr_decomposition(A, Q, R) == 0) {
-        printf("Matrix Q (QR decomposition):\n");
-        print_matrix(Q);
-        printf("Matrix R (QR decomposition):\n");
-        print_matrix(R);
-    } else {
-        printf("QR decomposition failed.\n");
-    }
-    free_matrix(Q);
-    free_matrix(R);
-
-    // Test: Gaussian elimination
-    Matrix* mat = create_matrix(3, 4);
-    set_element(mat, 0, 0, 2.0);
-    set_element(mat, 0, 1, 1.0);
-    set_element(mat, 0, 2, -1.0);
-    set_element(mat, 0, 3, 8.0);
-
-    set_element(mat, 1, 0, -3.0);
-    set_element(mat, 1, 1, -1.0);
-    set_element(mat, 1, 2, 2.0);
-    set_element(mat, 1, 3, -11.0);
-
-    set_element(mat, 2, 0, -2.0);
-    set_element(mat, 2, 1, 1.0);
-    set_element(mat, 2, 2, 2.0);
-    set_element(mat, 2, 3, -3.0);
-
-    printf("Original Matrix:\n");
-    print_matrix(mat);
-
-    if (gaussian_elimination(mat) == 0) {
-        printf("Matrix after Gaussian elimination:\n");
-        print_matrix(mat);
-    } else {
-        printf("Gaussian elimination failed.\n");
-    }
-
-    if (gauss_jordan_elimination(mat) == 0) {
-        printf("Matrix after Gauss-Jordan elimination:\n");
-        print_matrix(mat);
-    } else {
-        printf("Gaussian elimination failed.\n");
-    }
-
-    free_matrix(mat);
-    free_matrix(A);
-    free_matrix(B);
-
-    printf("All tests complete.\n");
     return 0;
 }

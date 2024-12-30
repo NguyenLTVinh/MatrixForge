@@ -74,17 +74,20 @@ void free_matrix(Matrix* mat) {
  * @return Pointer to the resulting matrix after addition, or NULL if dimensions do not match.
  */
 Matrix* matrix_add(const Matrix* A, const Matrix* B) {
-    if (A->rows != B->rows || A->cols != B->cols) {
-        fprintf(stderr, "Matrix dimensions do not match for addition.\n");
+    // Check if broadcasting is needed
+    if (A->rows != B->rows || (B->cols != 1 && A->cols != B->cols)) {
+        fprintf(stderr, "Matrix dimensions do not match for addition: A(%zu x %zu), B(%zu x %zu)\n",
+                A->rows, A->cols, B->rows, B->cols);
         return NULL;
     }
 
     Matrix* result = create_matrix(A->rows, A->cols);
-    size_t total_elements = A->rows * A->cols;
 
     #pragma omp parallel for
-    for (size_t i = 0; i < total_elements; i++) {
-        result->data[i] = A->data[i] + B->data[i];
+    for (size_t i = 0; i < A->rows; i++) {
+        for (size_t j = 0; j < A->cols; j++) {
+            result->data[i * A->cols + j] = A->data[i * A->cols + j] + B->data[i * B->cols + (B->cols == 1 ? 0 : j)];
+        }
     }
 
     return result;
@@ -99,7 +102,8 @@ Matrix* matrix_add(const Matrix* A, const Matrix* B) {
  */
 Matrix* matrix_sub(const Matrix* A, const Matrix* B) {
     if (A->rows != B->rows || A->cols != B->cols) {
-        fprintf(stderr, "Matrix dimensions do not match for subtraction.\n");
+        fprintf(stderr, "Matrix dimensions do not match for subtraction: A(%zu x %zu), B(%zu x %zu)\n",
+                A->rows, A->cols, B->rows, B->cols);
         return NULL;
     }
 
@@ -123,7 +127,8 @@ Matrix* matrix_sub(const Matrix* A, const Matrix* B) {
  */
 Matrix* matrix_mult(const Matrix* A, const Matrix* B) {
     if (A->cols != B->rows) {
-        fprintf(stderr, "Matrix dimensions do not match for multiplication.\n");
+        fprintf(stderr, "Matrix dimensions do not match for multiplication: A(%zu x %zu), B(%zu x %zu)\n",
+                A->rows, A->cols, B->rows, B->cols);
         return NULL;
     }
 
