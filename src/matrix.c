@@ -6,6 +6,8 @@
 #include <math.h>
 
 #define MAX_THREADS 4
+#define MAX_ITERATIONS 1000
+#define TOLERANCE 1e-10
 
 /**
  * @brief Create a matrix with specified dimensions.
@@ -187,7 +189,7 @@ Matrix* matrix_inverse(const Matrix* A) {
     // Gaussian elimination
     for (size_t i = 0; i < n; i++) {
         double diag = get_element(augmented, i, i);
-        if (fabs(diag) < 1e-10) {
+        if (fabs(diag) < TOLERANCE) {
             fprintf(stderr, "Matrix is singular and cannot be inverted.\n");
             free_matrix(augmented);
             return NULL;
@@ -418,4 +420,131 @@ Vector* get_column_vector(const Matrix* mat, size_t col) {
     }
 
     return col_vector;
+}
+
+/**
+ * @brief Multiply a matrix by a vector.
+ *
+ * @param A Pointer to the matrix (m x n).
+ * @param v Pointer to the vector (size n).
+ * @return Pointer to the resulting vector (size m), or NULL on failure.
+ */
+Vector* matrix_vector_mult(const Matrix* A, const Vector* v) {
+    if (A->cols != v->size) {
+        fprintf(stderr, "Matrix and vector dimensions do not match for multiplication.\n");
+        return NULL;
+    }
+
+    Vector* result = create_vector(A->rows);
+
+    for (size_t i = 0; i < A->rows; i++) {
+        double sum = 0.0;
+        for (size_t j = 0; j < A->cols; j++) {
+            sum += get_element(A, i, j) * get_vector_element(v, j);
+        }
+        set_vector_element(result, i, sum);
+    }
+
+    return result;
+}
+
+/**
+ * @brief Gaussian elimination on a matrix to reduce it to row echelon form.
+ *
+ * @param mat Pointer to the matrix to perform Gaussian elimination on.
+ * @return 0 on success, -1 on failure (e.g., matrix is singular or non-invertible).
+ */
+int gaussian_elimination(Matrix* mat) {
+    size_t n = mat->rows;
+    size_t m = mat->cols;
+
+    for (size_t i = 0; i < n; i++) {
+        // Find the pivot element in the current column
+        size_t pivot_row = i;
+        double max_pivot = fabs(get_element(mat, i, i));
+
+        for (size_t k = i + 1; k < n; k++) {
+            double current_pivot = fabs(get_element(mat, k, i));
+            if (current_pivot > max_pivot) {
+                max_pivot = current_pivot;
+                pivot_row = k;
+            }
+        }
+
+        // If no valid pivot is found, the matrix is singular
+        if (fabs(max_pivot) < TOLERANCE) {
+            return -1;
+        }
+
+        // Swap rows
+        if (pivot_row != i) {
+            for (size_t k = 0; k < m; k++) {
+                double temp = get_element(mat, i, k);
+                set_element(mat, i, k, get_element(mat, pivot_row, k));
+                set_element(mat, pivot_row, k, temp);
+            }
+        }
+
+        // Normalize the pivot row
+        double pivot = get_element(mat, i, i);
+        for (size_t j = i; j < m; j++) {
+            double normalized = get_element(mat, i, j) / pivot;
+            set_element(mat, i, j, normalized);
+        }
+
+        // Eliminate the entries below the pivot
+        for (size_t j = i + 1; j < n; j++) {
+            double factor = get_element(mat, j, i);
+            for (size_t k = i; k < m; k++) {
+                double updated = get_element(mat, j, k) - factor * get_element(mat, i, k);
+                set_element(mat, j, k, updated);
+            }
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Gauss-Jordan elimination to reduce a matrix to reduced row echelon form (RREF).
+ *
+ * @param mat Pointer to the matrix to perform Gauss-Jordan elimination on.
+ * @return 0 on success, -1 on failure (e.g., matrix is singular or non-invertible).
+ */
+int gauss_jordan_elimination(Matrix* mat) {
+    // Gaussian elimination to reach row echelon form
+    if (gaussian_elimination(mat) != 0) {
+        return -1;
+    }
+
+    size_t n = mat->rows;
+    size_t m = mat->cols;
+
+    // Backward elimination to RREF
+    for (int i = n - 1; i >= 0; i--) {
+        // Find the pivot in the current row
+        int pivot_col = -1;
+        for (size_t j = 0; j < m; j++) {
+            if (fabs(get_element(mat, i, j)) > TOLERANCE) {
+                pivot_col = j;
+                break;
+            }
+        }
+
+        // If no pivot found, skip the row
+        if (pivot_col == -1) {
+            continue;
+        }
+
+        // Eliminate entries above the pivot
+        for (int j = i - 1; j >= 0; j--) {
+            double factor = get_element(mat, j, pivot_col);
+            for (size_t k = 0; k < m; k++) {
+                double updated = get_element(mat, j, k) - factor * get_element(mat, i, k);
+                set_element(mat, j, k, updated);
+            }
+        }
+    }
+
+    return 0;
 }

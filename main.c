@@ -120,6 +120,41 @@ int main() {
     free_matrix(Q);
     free_matrix(R);
 
+    // Test: Gaussian elimination
+    Matrix* mat = create_matrix(3, 4);
+    set_element(mat, 0, 0, 2.0);
+    set_element(mat, 0, 1, 1.0);
+    set_element(mat, 0, 2, -1.0);
+    set_element(mat, 0, 3, 8.0);
+
+    set_element(mat, 1, 0, -3.0);
+    set_element(mat, 1, 1, -1.0);
+    set_element(mat, 1, 2, 2.0);
+    set_element(mat, 1, 3, -11.0);
+
+    set_element(mat, 2, 0, -2.0);
+    set_element(mat, 2, 1, 1.0);
+    set_element(mat, 2, 2, 2.0);
+    set_element(mat, 2, 3, -3.0);
+
+    printf("Original Matrix:\n");
+    print_matrix(mat);
+
+    if (gaussian_elimination(mat) == 0) {
+        printf("Matrix after Gaussian elimination:\n");
+        print_matrix(mat);
+    } else {
+        printf("Gaussian elimination failed.\n");
+    }
+
+    if (gauss_jordan_elimination(mat) == 0) {
+        printf("Matrix after Gauss-Jordan elimination:\n");
+        print_matrix(mat);
+    } else {
+        printf("Gaussian elimination failed.\n");
+    }
+
+    free_matrix(mat);
     free_matrix(A);
     free_matrix(B);
 
