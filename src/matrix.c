@@ -18,11 +18,23 @@
  */
 Matrix* create_matrix(size_t rows, size_t cols) {
     Matrix* mat = (Matrix*)malloc(sizeof(Matrix));
+    if (!mat) {
+        fprintf(stderr, "Failed to allocate memory for matrix structure.\n");
+        return NULL;
+    }
+
+    mat->data = (double*)calloc(rows * cols, sizeof(double));
+    if (!mat->data) {
+        fprintf(stderr, "Failed to allocate memory for matrix data.\n");
+        free(mat);
+        return NULL;
+    }
+
     mat->rows = rows;
     mat->cols = cols;
-    mat->data = (double*)calloc(rows * cols, sizeof(double));
     return mat;
 }
+
 
 /**
  * @brief Create an identity matrix.
@@ -32,6 +44,9 @@ Matrix* create_matrix(size_t rows, size_t cols) {
  */
 Matrix* create_identity_matrix(size_t n) {
     Matrix* mat = create_matrix(n, n);
+    if (!mat) {
+        return NULL;
+    }
     for (size_t i = 0; i < n; i++) {
         set_element(mat, i, i, 1.0);
     }
@@ -182,6 +197,11 @@ Matrix* matrix_inverse(const Matrix* A) {
     size_t n = A->rows;
     Matrix* augmented = create_matrix(n, 2 * n);
     Matrix* result = create_matrix(n, n);
+    if (!augmented || !result) {
+        free_matrix(augmented);
+        free_matrix(result);
+        return NULL;
+    }
 
     // Augmented matrix
     for (size_t i = 0; i < n; i++) {

@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -fopenmp -Iinc
+CFLAGS = -Wall -Wextra -O2 -fopenmp -Iinc -fsanitize=address
 LDFLAGS = -lm
 SRC_DIR = src
 INC_DIR = inc

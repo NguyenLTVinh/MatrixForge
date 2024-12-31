@@ -147,10 +147,10 @@ int main() {
 
     fprintf(stdout, "MNIST dataset loaded.\n");
     // Neural network configuration
-    size_t layer_dims[] = {train_image_size, 128, 10}; // 784 input, 128 hidden, 10 output
+    size_t layer_dims[] = {train_image_size, 128, 128, 10}; // 784 input, 128 hidden, 128 hidden, 10 output
     size_t num_layers = sizeof(layer_dims) / sizeof(layer_dims[0]);
-    size_t epochs = 10;
-    double learning_rate = 0.01;
+    size_t epochs = 20;
+    double learning_rate = 0.00001;
 
     // Initialize weights and biases
     Matrix* weights[num_layers];

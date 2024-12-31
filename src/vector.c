@@ -9,8 +9,19 @@
  */
 Vector* create_vector(size_t size) {
     Vector* vec = (Vector*)malloc(sizeof(Vector));
-    vec->size = size;
+    if (!vec) {
+        fprintf(stderr, "Failed to allocate memory for vector structure.\n");
+        return NULL;
+    }
+
     vec->data = (double*)calloc(size, sizeof(double));
+    if (!vec->data) {
+        fprintf(stderr, "Failed to allocate memory for vector data.\n");
+        free(vec);
+        return NULL;
+    }
+
+    vec->size = size;
     return vec;
 }
 

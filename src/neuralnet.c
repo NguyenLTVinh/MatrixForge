@@ -21,6 +21,14 @@ double relu_derivative(double z) {
     return (z > 0) ? 1 : 0;
 }
 
+double leaky_relu(double z) {
+    return (z > 0) ? z : 0.01 * z;
+}
+
+double leaky_relu_derivative(double z) {
+    return (z > 0) ? 1.0 : 0.01;
+}
+
 void softmax(Matrix* Z, Matrix* A) {
     for (size_t i = 0; i < Z->cols; i++) {
         double sum_exp = 0.0;
@@ -38,11 +46,28 @@ void softmax(Matrix* Z, Matrix* A) {
     }
 }
 
-
 void init_params(Matrix** weights, Matrix** biases, size_t* layer_dims, size_t L) {
     for (size_t l = 1; l < L; l++) {
         weights[l] = create_matrix(layer_dims[l], layer_dims[l - 1]);
+        if (!weights[l]) {
+            fprintf(stderr, "Failed to allocate weights for layer %zu.\n", l);
+            for (size_t k = 1; k < l; k++) {
+                free_matrix(weights[k]);
+                free_matrix(biases[k]);
+            }
+            return;
+        }
+
         biases[l] = create_constant_matrix(layer_dims[l], 1, 0.0);
+        if (!biases[l]) {
+            fprintf(stderr, "Failed to allocate biases for layer %zu.\n", l);
+            free_matrix(weights[l]);
+            for (size_t k = 1; k < l; k++) {
+                free_matrix(weights[k]);
+                free_matrix(biases[k]);
+            }
+            return;
+        }
 
         double init_range = sqrt(2.0 / layer_dims[l - 1]);
         for (size_t i = 0; i < weights[l]->rows * weights[l]->cols; i++) {
@@ -52,18 +77,25 @@ void init_params(Matrix** weights, Matrix** biases, size_t* layer_dims, size_t L
 }
 
 void forward_prop(Matrix* X, Matrix** weights, Matrix** biases, Matrix** activations, Matrix** Zs, size_t L) {
-    activations[0] = X;
+    activations[0] = X; // Input layer activations
 
     for (size_t l = 1; l < L; l++) {
         Zs[l] = matrix_add(matrix_mult(weights[l], activations[l - 1]), biases[l]);
         activations[l] = create_matrix(Zs[l]->rows, Zs[l]->cols);
 
-        #pragma omp parallel for
-        for (size_t i = 0; i < Zs[l]->rows * Zs[l]->cols; i++) {
-            activations[l]->data[i] = relu(Zs[l]->data[i]);
+        if (l == L - 1) {
+            // Softmax in the output layer
+            softmax(Zs[l], activations[l]);
+        } else {
+            // ReLU for hidden layers
+            #pragma omp parallel for
+            for (size_t i = 0; i < Zs[l]->rows * Zs[l]->cols; i++) {
+                activations[l]->data[i] = leaky_relu(Zs[l]->data[i]);
+            }
         }
     }
 }
+
 
 double cost_function(Matrix* A, Matrix* Y) {
     size_t m = Y->cols;
@@ -71,7 +103,14 @@ double cost_function(Matrix* A, Matrix* Y) {
     double epsilon = 1e-10;
 
     for (size_t i = 0; i < Y->rows * Y->cols; i++) {
-        cost += -Y->data[i] * log(A->data[i] + epsilon) - (1.0 - Y->data[i]) * log(1.0 - A->data[i] + epsilon);
+        double a = A->data[i];
+        double y = Y->data[i];
+
+        // Clamp to prevent log(0)
+        if (a < epsilon) a = epsilon;
+        if (a > 1.0 - epsilon) a = 1.0 - epsilon;
+
+        cost += -y * log(a) - (1.0 - y) * log(1.0 - a);
     }
 
     return cost / m;
@@ -83,9 +122,17 @@ void backprop(Matrix* Y, Matrix** weights, Matrix** activations, Matrix** Zs, Ma
     for (size_t l = L - 1; l > 0; l--) {
         Matrix* dZ = create_matrix(Zs[l]->rows, Zs[l]->cols);
 
-        #pragma omp parallel for
-        for (size_t i = 0; i < dZ->rows * dZ->cols; i++) {
-            dZ->data[i] = dA->data[i] * relu_derivative(Zs[l]->data[i]);
+        if (l == L - 1) {
+            // For softmax, dZ = dA
+            for (size_t i = 0; i < dZ->rows * dZ->cols; i++) {
+                dZ->data[i] = dA->data[i];
+            }
+        } else {
+            // For hidden layers, use derivative of ReLU
+            #pragma omp parallel for
+            for (size_t i = 0; i < dZ->rows * dZ->cols; i++) {
+                dZ->data[i] = dA->data[i] * leaky_relu_derivative(Zs[l]->data[i]);
+            }
         }
 
         dWs[l] = matrix_mult(dZ, matrix_transpose(activations[l - 1]));
@@ -135,6 +182,16 @@ void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, do
     Matrix* dWs[L];
     Matrix* dbs[L];
 
+    // Init
+    for (size_t i = 0; i < L; i++) {
+        weights[i] = NULL;
+        biases[i] = NULL;
+        activations[i] = NULL;
+        Zs[i] = NULL;
+        dWs[i] = NULL;
+        dbs[i] = NULL;
+    }
+
     init_params(weights, biases, layer_dims, L);
 
     for (size_t epoch = 0; epoch < epochs; epoch++) {
@@ -143,15 +200,31 @@ void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, do
         double cost = cost_function(activations[L - 1], Y);
         printf("Epoch %lu, Cost: %f\n", epoch, cost);
 
-        backprop(Y, weights, activations, Zs, dWs, dbs, L);
+        // Debug: Print activation statistics
+        double max_activation = 0.0, min_activation = 1.0;
+        for (size_t i = 0; i < activations[L - 1]->rows * activations[L - 1]->cols; i++) {
+            if (activations[L - 1]->data[i] > max_activation) max_activation = activations[L - 1]->data[i];
+            if (activations[L - 1]->data[i] < min_activation) min_activation = activations[L - 1]->data[i];
+        }
+        printf("Debug: Output Activations - Min: %f, Max: %f\n", min_activation, max_activation);
 
+        backprop(Y, weights, activations, Zs, dWs, dbs, L);
         update_parameters(weights, biases, dWs, dbs, L, learning_rate);
+
+        // Free gradients after each update
+        for (size_t l = 1; l < L; l++) {
+            if (dWs[l]) free_matrix(dWs[l]);
+            if (dbs[l]) free_matrix(dbs[l]);
+            dWs[l] = NULL;
+            dbs[l] = NULL;
+        }
     }
 
+    // Free all remaining resources
     for (size_t l = 1; l < L; l++) {
-        free_matrix(weights[l]);
-        free_matrix(biases[l]);
-        free_matrix(dWs[l]);
-        free_matrix(dbs[l]);
+        if (weights[l]) free_matrix(weights[l]);
+        if (biases[l]) free_matrix(biases[l]);
+        if (Zs[l]) free_matrix(Zs[l]);
+        if (activations[l]) free_matrix(activations[l]);
     }
 }
