@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-// Util funnctions to load mnist dataset
+// Util functions to load MNIST dataset
 uint32_t flip_endian(uint32_t num) {
     return ((num & 0xFF) << 24) |
            ((num & 0xFF00) << 8) |
@@ -22,10 +22,14 @@ Matrix* load_mnist_images(const char* filename, size_t* num_images, size_t* imag
 
     uint32_t magic_number, num_imgs, rows, cols;
 
-    fread(&magic_number, sizeof(uint32_t), 1, file);
-    fread(&num_imgs, sizeof(uint32_t), 1, file);
-    fread(&rows, sizeof(uint32_t), 1, file);
-    fread(&cols, sizeof(uint32_t), 1, file);
+    if (fread(&magic_number, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&num_imgs, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&rows, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&cols, sizeof(uint32_t), 1, file) != 1) {
+        fprintf(stderr, "Error: Failed to read MNIST image file header.\n");
+        fclose(file);
+        return NULL;
+    }
 
     // Flip endian
     magic_number = flip_endian(magic_number);
@@ -47,7 +51,12 @@ Matrix* load_mnist_images(const char* filename, size_t* num_images, size_t* imag
     for (size_t i = 0; i < *num_images; i++) {
         for (size_t j = 0; j < *image_size; j++) {
             unsigned char pixel;
-            fread(&pixel, sizeof(unsigned char), 1, file);
+            if (fread(&pixel, sizeof(unsigned char), 1, file) != 1) {
+                fprintf(stderr, "Error: Failed to read pixel data from MNIST image file.\n");
+                free_matrix(images);
+                fclose(file);
+                return NULL;
+            }
             set_element(images, j, i, pixel / 255.0); // Normalize to [0, 1]
         }
     }
@@ -65,10 +74,14 @@ Matrix* load_mnist_labels(const char* filename, size_t num_labels) {
 
     uint32_t magic_number, num_lbls;
 
-    fread(&magic_number, sizeof(uint32_t), 1, file);
-    fread(&num_lbls, sizeof(uint32_t), 1, file);
+    if (fread(&magic_number, sizeof(uint32_t), 1, file) != 1 ||
+        fread(&num_lbls, sizeof(uint32_t), 1, file) != 1) {
+        fprintf(stderr, "Error: Failed to read MNIST label file header.\n");
+        fclose(file);
+        return NULL;
+    }
 
-    // Flip endian for Intel processors
+    // Flip endian
     magic_number = flip_endian(magic_number);
     num_lbls = flip_endian(num_lbls);
 
@@ -82,7 +95,12 @@ Matrix* load_mnist_labels(const char* filename, size_t num_labels) {
 
     for (size_t i = 0; i < num_labels; i++) {
         unsigned char label;
-        fread(&label, sizeof(unsigned char), 1, file);
+        if (fread(&label, sizeof(unsigned char), 1, file) != 1) {
+            fprintf(stderr, "Error: Failed to read label data from MNIST label file.\n");
+            free_matrix(labels);
+            fclose(file);
+            return NULL;
+        }
 
         // One-hot encode the label
         for (size_t j = 0; j < 10; j++) {
@@ -147,10 +165,10 @@ int main() {
 
     fprintf(stdout, "MNIST dataset loaded.\n");
     // Neural network configuration
-    size_t layer_dims[] = {train_image_size, 128, 128, 10}; // 784 input, 128 hidden, 128 hidden, 10 output
+    size_t layer_dims[] = {train_image_size, 256, 256, 10}; // 784 input, 256 hidden, 256 hidden, 10 output
     size_t num_layers = sizeof(layer_dims) / sizeof(layer_dims[0]);
-    size_t epochs = 20;
-    double learning_rate = 0.00001;
+    size_t epochs = 50;
+    double learning_rate = 0.001;
 
     // Initialize weights and biases
     Matrix* weights[num_layers];

@@ -77,10 +77,13 @@ void init_params(Matrix** weights, Matrix** biases, size_t* layer_dims, size_t L
 }
 
 void forward_prop(Matrix* X, Matrix** weights, Matrix** biases, Matrix** activations, Matrix** Zs, size_t L) {
-    activations[0] = X; // Input layer activations
+    activations[0] = X;
 
     for (size_t l = 1; l < L; l++) {
-        Zs[l] = matrix_add(matrix_mult(weights[l], activations[l - 1]), biases[l]);
+        Matrix* temp = matrix_mult(weights[l], activations[l - 1]);
+        Zs[l] = matrix_add(temp, biases[l]);
+        free_matrix(temp);
+
         activations[l] = create_matrix(Zs[l]->rows, Zs[l]->cols);
 
         if (l == L - 1) {
@@ -95,7 +98,6 @@ void forward_prop(Matrix* X, Matrix** weights, Matrix** biases, Matrix** activat
         }
     }
 }
-
 
 double cost_function(Matrix* A, Matrix* Y) {
     size_t m = Y->cols;
@@ -135,7 +137,10 @@ void backprop(Matrix* Y, Matrix** weights, Matrix** activations, Matrix** Zs, Ma
             }
         }
 
-        dWs[l] = matrix_mult(dZ, matrix_transpose(activations[l - 1]));
+        Matrix* transposed = matrix_transpose(activations[l - 1]);
+        dWs[l] = matrix_mult(dZ, transposed);
+        free_matrix(transposed);
+
         dbs[l] = create_constant_matrix(dZ->rows, 1, 0.0);
 
         #pragma omp parallel for
@@ -171,6 +176,12 @@ void update_parameters(Matrix** weights, Matrix** biases, Matrix** dWs, Matrix**
         for (size_t i = 0; i < biases[l]->rows; i++) {
             biases[l]->data[i] -= learning_rate * dbs[l]->data[i];
         }
+
+        free_matrix(dWs[l]);
+        dWs[l] = NULL;
+
+        free_matrix(dbs[l]);
+        dbs[l] = NULL;
     }
 }
 
@@ -211,20 +222,17 @@ void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, do
         backprop(Y, weights, activations, Zs, dWs, dbs, L);
         update_parameters(weights, biases, dWs, dbs, L, learning_rate);
 
-        // Free gradients after each update
         for (size_t l = 1; l < L; l++) {
-            if (dWs[l]) free_matrix(dWs[l]);
-            if (dbs[l]) free_matrix(dbs[l]);
-            dWs[l] = NULL;
-            dbs[l] = NULL;
+            free_matrix(Zs[l]);
+            Zs[l] = NULL;
+
+            free_matrix(activations[l]);
+            activations[l] = NULL;
         }
     }
 
-    // Free all remaining resources
     for (size_t l = 1; l < L; l++) {
-        if (weights[l]) free_matrix(weights[l]);
-        if (biases[l]) free_matrix(biases[l]);
-        if (Zs[l]) free_matrix(Zs[l]);
-        if (activations[l]) free_matrix(activations[l]);
+        free_matrix(weights[l]);
+        free_matrix(biases[l]);
     }
 }

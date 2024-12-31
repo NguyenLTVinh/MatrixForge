@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -O2 -fopenmp -Iinc -fsanitize=address
+CFLAGS = -Wall -Wextra -O2 -fopenmp -Iinc
 LDFLAGS = -lm
 SRC_DIR = src
 INC_DIR = inc
@@ -7,7 +7,7 @@ BUILD_DIR = build
 BIN_DIR = bin
 SRC_FILES = $(wildcard $(SRC_DIR)/*.c)
 OBJ_FILES = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(SRC_FILES))
-TARGET = $(BIN_DIR)/matrix_test
+TARGET = $(BIN_DIR)/neural_net
 
 all: $(TARGET)
 
