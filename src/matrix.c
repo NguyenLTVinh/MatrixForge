@@ -1,13 +1,15 @@
 #include "matrix.h"
 #include "vector.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <omp.h>
-#include <string.h>
 #include <math.h>
+#include <immintrin.h>
 
 #define MAX_THREADS 4
 #define MAX_ITERATIONS 1000
 #define TOLERANCE 1e-10
+#define BLOCK_SIZE 64
 
 /**
  * @brief Create a matrix with specified dimensions.
@@ -22,10 +24,9 @@ Matrix* create_matrix(size_t rows, size_t cols) {
         fprintf(stderr, "Failed to allocate memory for matrix structure.\n");
         return NULL;
     }
-
-    mat->data = (double*)calloc(rows * cols, sizeof(double));
-    if (!mat->data) {
-        fprintf(stderr, "Failed to allocate memory for matrix data.\n");
+    int ret = posix_memalign((void**)&mat->data, 64, sizeof(double) * rows * cols);
+    if (ret != 0) {
+        fprintf(stderr, "Failed to allocate aligned memory for matrix data (error code: %d).\n", ret);
         free(mat);
         return NULL;
     }
@@ -48,7 +49,7 @@ Matrix* create_identity_matrix(size_t n) {
         return NULL;
     }
     for (size_t i = 0; i < n; i++) {
-        set_element(mat, i, i, 1.0);
+        mat->data[i * n + i] = 1.0;
     }
     return mat;
 }
@@ -63,6 +64,9 @@ Matrix* create_identity_matrix(size_t n) {
  */
 Matrix* create_constant_matrix(size_t rows, size_t cols, double value) {
     Matrix* mat = create_matrix(rows, cols);
+    if (!mat) {
+        return NULL;
+    }
     for (size_t i = 0; i < rows * cols; i++) {
         mat->data[i] = value;
     }
@@ -89,22 +93,22 @@ void free_matrix(Matrix* mat) {
  * @return Pointer to the resulting matrix after addition, or NULL if dimensions do not match.
  */
 Matrix* matrix_add(const Matrix* A, const Matrix* B) {
-    // Check if broadcasting is needed
-    if (A->rows != B->rows || (B->cols != 1 && A->cols != B->cols)) {
-        fprintf(stderr, "Matrix dimensions do not match for addition: A(%zu x %zu), B(%zu x %zu)\n",
-                A->rows, A->cols, B->rows, B->cols);
+    if ((A->rows != B->rows && B->rows != 1) || (A->cols != B->cols && B->cols != 1)) {
+        fprintf(stderr, "Matrix dimensions do not match for addition with broadcasting.\n");
         return NULL;
     }
 
     Matrix* result = create_matrix(A->rows, A->cols);
+    if (!result) return NULL;
 
     #pragma omp parallel for
     for (size_t i = 0; i < A->rows; i++) {
         for (size_t j = 0; j < A->cols; j++) {
-            result->data[i * A->cols + j] = A->data[i * A->cols + j] + B->data[i * B->cols + (B->cols == 1 ? 0 : j)];
+            size_t b_row = (B->rows == 1) ? 0 : i;
+            size_t b_col = (B->cols == 1) ? 0 : j;
+            result->data[i * A->cols + j] = A->data[i * A->cols + j] + B->data[b_row * B->cols + b_col];
         }
     }
-
     return result;
 }
 
@@ -116,20 +120,22 @@ Matrix* matrix_add(const Matrix* A, const Matrix* B) {
  * @return Pointer to the resulting matrix after subtraction, or NULL if dimensions do not match.
  */
 Matrix* matrix_sub(const Matrix* A, const Matrix* B) {
-    if (A->rows != B->rows || A->cols != B->cols) {
-        fprintf(stderr, "Matrix dimensions do not match for subtraction: A(%zu x %zu), B(%zu x %zu)\n",
-                A->rows, A->cols, B->rows, B->cols);
+    if ((A->rows != B->rows && B->rows != 1) || (A->cols != B->cols && B->cols != 1)) {
+        fprintf(stderr, "Matrix dimensions do not match for subtraction with broadcasting.\n");
         return NULL;
     }
 
     Matrix* result = create_matrix(A->rows, A->cols);
-    size_t total_elements = A->rows * A->cols;
+    if (!result) return NULL;
 
     #pragma omp parallel for
-    for (size_t i = 0; i < total_elements; i++) {
-        result->data[i] = A->data[i] - B->data[i];
+    for (size_t i = 0; i < A->rows; i++) {
+        for (size_t j = 0; j < A->cols; j++) {
+            size_t b_row = (B->rows == 1) ? 0 : i;
+            size_t b_col = (B->cols == 1) ? 0 : j;
+            result->data[i * A->cols + j] = A->data[i * A->cols + j] - B->data[b_row * B->cols + b_col];
+        }
     }
-
     return result;
 }
 
@@ -142,24 +148,31 @@ Matrix* matrix_sub(const Matrix* A, const Matrix* B) {
  */
 Matrix* matrix_mult(const Matrix* A, const Matrix* B) {
     if (A->cols != B->rows) {
-        fprintf(stderr, "Matrix dimensions do not match for multiplication: A(%zu x %zu), B(%zu x %zu)\n",
-                A->rows, A->cols, B->rows, B->cols);
+        fprintf(stderr, "Matrix dimensions do not match for multiplication.\n");
         return NULL;
     }
 
     Matrix* result = create_matrix(A->rows, B->cols);
+    if (!result) return NULL;
+
+    size_t n = A->rows, m = A->cols, p = B->cols;
 
     #pragma omp parallel for
-    for (size_t i = 0; i < A->rows; i++) {
-        for (size_t j = 0; j < B->cols; j++) {
-            double sum = 0.0;
-            for (size_t k = 0; k < A->cols; k++) {
-                sum += get_element(A, i, k) * get_element(B, k, j);
+    for (size_t ii = 0; ii < n; ii += BLOCK_SIZE) {
+        for (size_t jj = 0; jj < p; jj += BLOCK_SIZE) {
+            for (size_t kk = 0; kk < m; kk += BLOCK_SIZE) {
+                for (size_t i = ii; i < fmin(ii + BLOCK_SIZE, n); i++) {
+                    for (size_t j = jj; j < fmin(jj + BLOCK_SIZE, p); j++) {
+                        double sum = 0.0;
+                        for (size_t k = kk; k < fmin(kk + BLOCK_SIZE, m); k++) {
+                            sum += A->data[i * m + k] * B->data[k * p + j];
+                        }
+                        result->data[i * p + j] += sum;
+                    }
+                }
             }
-            set_element(result, i, j, sum);
         }
     }
-
     return result;
 }
 
@@ -171,14 +184,14 @@ Matrix* matrix_mult(const Matrix* A, const Matrix* B) {
  */
 Matrix* matrix_transpose(const Matrix* A) {
     Matrix* result = create_matrix(A->cols, A->rows);
+    if (!result) return NULL;
 
     #pragma omp parallel for
     for (size_t i = 0; i < A->rows; i++) {
         for (size_t j = 0; j < A->cols; j++) {
-            set_element(result, j, i, get_element(A, i, j));
+            result->data[j * A->rows + i] = A->data[i * A->cols + j];
         }
     }
-
     return result;
 }
 
@@ -206,31 +219,32 @@ Matrix* matrix_inverse(const Matrix* A) {
     // Augmented matrix
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < n; j++) {
-            set_element(augmented, i, j, get_element(A, i, j));
-            set_element(augmented, i, j + n, (i == j) ? 1.0 : 0.0);
+            augmented->data[i * (2 * n) + j] = A->data[i * n + j];
+            augmented->data[i * (2 * n) + j + n] = (i == j) ? 1.0 : 0.0;
         }
     }
 
     // Gaussian elimination
     for (size_t i = 0; i < n; i++) {
-        double diag = get_element(augmented, i, i);
+        double diag = augmented->data[i * (2 * n) + i];
         if (fabs(diag) < TOLERANCE) {
             fprintf(stderr, "Matrix is singular and cannot be inverted.\n");
             free_matrix(augmented);
+            free_matrix(result);
             return NULL;
         }
 
         // Normalize row
         for (size_t j = 0; j < 2 * n; j++) {
-            set_element(augmented, i, j, get_element(augmented, i, j) / diag);
+            augmented->data[i * (2 * n) + j] /= diag;
         }
 
         // Eliminate column
         for (size_t k = 0; k < n; k++) {
             if (k != i) {
-                double factor = get_element(augmented, k, i);
+                double factor = augmented->data[k * (2 * n) + i];
                 for (size_t j = 0; j < 2 * n; j++) {
-                    set_element(augmented, k, j, get_element(augmented, k, j) - factor * get_element(augmented, i, j));
+                    augmented->data[k * (2 * n) + j] -= factor * augmented->data[i * (2 * n) + j];
                 }
             }
         }
@@ -239,14 +253,13 @@ Matrix* matrix_inverse(const Matrix* A) {
     // Extract inverse
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < n; j++) {
-            set_element(result, i, j, get_element(augmented, i, j + n));
+            result->data[i * n + j] = augmented->data[i * (2 * n) + j + n];
         }
     }
 
     free_matrix(augmented);
     return result;
 }
-
 
 /**
  * @brief Perform LU decomposition of a matrix.
@@ -266,25 +279,28 @@ int lu_decomposition(const Matrix* A, Matrix* L, Matrix* U) {
 
     for (size_t i = 0; i < n; i++) {
         for (size_t j = 0; j < n; j++) {
-            if (j < i)
-                set_element(L, j, i, 0);
-            else {
+            if (j < i) {
+                L->data[j * n + i] = 0;
+            } else {
                 double sum = 0;
-                for (size_t k = 0; k < i; k++)
-                    sum += get_element(L, i, k) * get_element(U, k, j);
-                set_element(U, i, j, get_element(A, i, j) - sum);
+                for (size_t k = 0; k < i; k++) {
+                    sum += L->data[i * n + k] * U->data[k * n + j];
+                }
+                U->data[i * n + j] = A->data[i * n + j] - sum;
             }
         }
+
         for (size_t j = 0; j < n; j++) {
-            if (j < i)
-                set_element(U, j, i, 0);
-            else if (j == i)
-                set_element(L, j, i, 1);
-            else {
+            if (j < i) {
+                U->data[j * n + i] = 0;
+            } else if (j == i) {
+                L->data[j * n + i] = 1;
+            } else {
                 double sum = 0;
-                for (size_t k = 0; k < i; k++)
-                    sum += get_element(L, j, k) * get_element(U, k, i);
-                set_element(L, j, i, (get_element(A, j, i) - sum) / get_element(U, i, i));
+                for (size_t k = 0; k < i; k++) {
+                    sum += L->data[j * n + k] * U->data[k * n + i];
+                }
+                L->data[j * n + i] = (A->data[j * n + i] - sum) / U->data[i * n + i];
             }
         }
     }
@@ -379,11 +395,17 @@ double determinant(const Matrix* A) {
     Matrix* L = create_matrix(A->rows, A->cols);
     Matrix* U = create_matrix(A->rows, A->cols);
 
+    if (!L || !U) {
+        free_matrix(L);
+        free_matrix(U);
+        return 0.0;
+    }
+
     lu_decomposition(A, L, U);
 
     double det = 1.0;
     for (size_t i = 0; i < A->rows; i++) {
-        det *= get_element(U, i, i);
+        det *= U->data[i * A->cols + i];
     }
 
     free_matrix(L);
@@ -400,7 +422,7 @@ double determinant(const Matrix* A) {
 double trace(const Matrix* A) {
     double tr = 0.0;
     for (size_t i = 0; i < A->rows && i < A->cols; i++) {
-        tr += get_element(A, i, i);
+        tr += A->data[i * A->cols + i];
     }
     return tr;
 }
@@ -419,8 +441,10 @@ Vector* get_row_vector(const Matrix* mat, size_t row) {
     }
 
     Vector* row_vector = create_vector(mat->cols);
+    if (!row_vector) return NULL;
+
     for (size_t j = 0; j < mat->cols; j++) {
-        set_vector_element(row_vector, j, get_element(mat, row, j));
+        set_vector_element(row_vector, j, mat->data[row * mat->cols + j]);
     }
 
     return row_vector;
@@ -440,8 +464,10 @@ Vector* get_column_vector(const Matrix* mat, size_t col) {
     }
 
     Vector* col_vector = create_vector(mat->rows);
+    if (!col_vector) return NULL;
+
     for (size_t i = 0; i < mat->rows; i++) {
-        set_vector_element(col_vector, i, get_element(mat, i, col));
+        set_vector_element(col_vector, i, mat->data[i * mat->cols + col]);
     }
 
     return col_vector;
@@ -461,11 +487,13 @@ Vector* matrix_vector_mult(const Matrix* A, const Vector* v) {
     }
 
     Vector* result = create_vector(A->rows);
+    if (!result) return NULL;
 
+    #pragma omp parallel for
     for (size_t i = 0; i < A->rows; i++) {
         double sum = 0.0;
         for (size_t j = 0; j < A->cols; j++) {
-            sum += get_element(A, i, j) * get_vector_element(v, j);
+            sum += A->data[i * A->cols + j] * get_vector_element(v, j);
         }
         set_vector_element(result, i, sum);
     }
@@ -486,10 +514,10 @@ int gaussian_elimination(Matrix* mat) {
     for (size_t i = 0; i < n; i++) {
         // Find the pivot element in the current column
         size_t pivot_row = i;
-        double max_pivot = fabs(get_element(mat, i, i));
+        double max_pivot = fabs(mat->data[i * m + i]);
 
         for (size_t k = i + 1; k < n; k++) {
-            double current_pivot = fabs(get_element(mat, k, i));
+            double current_pivot = fabs(mat->data[k * m + i]);
             if (current_pivot > max_pivot) {
                 max_pivot = current_pivot;
                 pivot_row = k;
@@ -504,29 +532,26 @@ int gaussian_elimination(Matrix* mat) {
         // Swap rows
         if (pivot_row != i) {
             for (size_t k = 0; k < m; k++) {
-                double temp = get_element(mat, i, k);
-                set_element(mat, i, k, get_element(mat, pivot_row, k));
-                set_element(mat, pivot_row, k, temp);
+                double temp = mat->data[i * m + k];
+                mat->data[i * m + k] = mat->data[pivot_row * m + k];
+                mat->data[pivot_row * m + k] = temp;
             }
         }
 
         // Normalize the pivot row
-        double pivot = get_element(mat, i, i);
+        double pivot = mat->data[i * m + i];
         for (size_t j = i; j < m; j++) {
-            double normalized = get_element(mat, i, j) / pivot;
-            set_element(mat, i, j, normalized);
+            mat->data[i * m + j] /= pivot;
         }
 
         // Eliminate the entries below the pivot
         for (size_t j = i + 1; j < n; j++) {
-            double factor = get_element(mat, j, i);
+            double factor = mat->data[j * m + i];
             for (size_t k = i; k < m; k++) {
-                double updated = get_element(mat, j, k) - factor * get_element(mat, i, k);
-                set_element(mat, j, k, updated);
+                mat->data[j * m + k] -= factor * mat->data[i * m + k];
             }
         }
     }
-
     return 0;
 }
 
@@ -550,7 +575,7 @@ int gauss_jordan_elimination(Matrix* mat) {
         // Find the pivot in the current row
         int pivot_col = -1;
         for (size_t j = 0; j < m; j++) {
-            if (fabs(get_element(mat, i, j)) > TOLERANCE) {
+            if (fabs(mat->data[i * m + j]) > TOLERANCE) {
                 pivot_col = j;
                 break;
             }
@@ -563,10 +588,9 @@ int gauss_jordan_elimination(Matrix* mat) {
 
         // Eliminate entries above the pivot
         for (int j = i - 1; j >= 0; j--) {
-            double factor = get_element(mat, j, pivot_col);
+            double factor = mat->data[j * m + pivot_col];
             for (size_t k = 0; k < m; k++) {
-                double updated = get_element(mat, j, k) - factor * get_element(mat, i, k);
-                set_element(mat, j, k, updated);
+                mat->data[j * m + k] -= factor * mat->data[i * m + k];
             }
         }
     }

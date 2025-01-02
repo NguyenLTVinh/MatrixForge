@@ -2,6 +2,9 @@
 
 This project implements a simple library for linear algebra and machine learning in C. The main program implements classifying handwritten digits from the MNIST dataset. The implementation includes support for matrix operations, forward propagation, backpropagation, and training using stochastic gradient descent with Leaky ReLU activations.
 
+## Changes Log
+- Modified matrix operations to better use CPU caching and aligned memory to improve speed.
+
 ## Features
 - **Matrix and Vector Operations**: Efficient linear algebra functions using multithreading for neural network computations.
 - **Feedforward Neural Network**: Supports multi-layer architectures with customizable layer sizes.
