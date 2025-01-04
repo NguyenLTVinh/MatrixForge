@@ -109,8 +109,7 @@ double cost_function(Matrix* A, Matrix* Y) {
         double y = Y->data[i];
 
         // Clamp to prevent log(0)
-        if (a < epsilon) a = epsilon;
-        if (a > 1.0 - epsilon) a = 1.0 - epsilon;
+        a = fmax(epsilon, fmin(1.0 - epsilon, a));
 
         cost += -y * log(a) - (1.0 - y) * log(1.0 - a);
     }
@@ -164,16 +163,28 @@ void backprop(Matrix* Y, Matrix** weights, Matrix** activations, Matrix** Zs, Ma
     free_matrix(dA);
 }
 
-void update_parameters(Matrix** weights, Matrix** biases, Matrix** dWs, Matrix** dbs, size_t L, double learning_rate) {
+void update_parameters(Matrix** weights, Matrix** biases, Matrix** dWs, Matrix** dbs, size_t L, double learning_rate, double clip_value) {
     for (size_t l = 1; l < L; l++) {
 
         #pragma omp parallel for
         for (size_t i = 0; i < weights[l]->rows * weights[l]->cols; i++) {
+            if (dWs[l]->data[i] > clip_value) {
+                dWs[l]->data[i] = clip_value;
+            } else if (dWs[l]->data[i] < -clip_value) {
+                dWs[l]->data[i] = -clip_value;
+            }
+
             weights[l]->data[i] -= learning_rate * dWs[l]->data[i];
         }
 
         #pragma omp parallel for
         for (size_t i = 0; i < biases[l]->rows; i++) {
+            if (dbs[l]->data[i] > clip_value) {
+                dbs[l]->data[i] = clip_value;
+            } else if (dbs[l]->data[i] < -clip_value) {
+                dbs[l]->data[i] = -clip_value;
+            }
+
             biases[l]->data[i] -= learning_rate * dbs[l]->data[i];
         }
 
@@ -185,15 +196,30 @@ void update_parameters(Matrix** weights, Matrix** biases, Matrix** dWs, Matrix**
     }
 }
 
-void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, double learning_rate) {
+void adapt_learning_rate(double* learning_rate, double decay_factor, size_t patience, double* cost_history, size_t epoch) {
+    if (epoch < patience) return;
+
+    double recent_cost = cost_history[epoch];
+    double past_cost = cost_history[epoch - patience];
+
+    if (recent_cost >= past_cost) {
+        *learning_rate *= decay_factor;
+        printf("Learning rate reduced to: %f\n", *learning_rate);
+    }
+}
+
+void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, double initial_learning_rate, double decay_factor, size_t patience) {
     Matrix* weights[L];
     Matrix* biases[L];
     Matrix* activations[L];
     Matrix* Zs[L];
     Matrix* dWs[L];
     Matrix* dbs[L];
+    double cost_history[epochs];
 
-    // Init
+    double learning_rate = initial_learning_rate;
+
+    // Initialize weights and biases
     for (size_t i = 0; i < L; i++) {
         weights[i] = NULL;
         biases[i] = NULL;
@@ -209,18 +235,14 @@ void train(Matrix* X, Matrix* Y, size_t* layer_dims, size_t L, size_t epochs, do
         forward_prop(X, weights, biases, activations, Zs, L);
 
         double cost = cost_function(activations[L - 1], Y);
+        cost_history[epoch] = cost;
         printf("Epoch %lu, Cost: %f\n", epoch, cost);
 
-        // Debug: Print activation statistics
-        double max_activation = 0.0, min_activation = 1.0;
-        for (size_t i = 0; i < activations[L - 1]->rows * activations[L - 1]->cols; i++) {
-            if (activations[L - 1]->data[i] > max_activation) max_activation = activations[L - 1]->data[i];
-            if (activations[L - 1]->data[i] < min_activation) min_activation = activations[L - 1]->data[i];
-        }
-        printf("Debug: Output Activations - Min: %f, Max: %f\n", min_activation, max_activation);
+        // Adapt learning rate on plateau
+        adapt_learning_rate(&learning_rate, decay_factor, patience, cost_history, epoch);
 
         backprop(Y, weights, activations, Zs, dWs, dbs, L);
-        update_parameters(weights, biases, dWs, dbs, L, learning_rate);
+        update_parameters(weights, biases, dWs, dbs, L, learning_rate, 1.0); // Clip value of 1.0
 
         for (size_t l = 1; l < L; l++) {
             free_matrix(Zs[l]);

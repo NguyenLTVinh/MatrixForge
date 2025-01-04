@@ -163,12 +163,13 @@ int main() {
         return -1;
     }
 
-    fprintf(stdout, "MNIST dataset loaded.\n");
+    printf("Loaded %zu training images of size %zu.\n", num_train_images, train_image_size);
+
     // Neural network configuration
     size_t layer_dims[] = {train_image_size, 256, 256, 10}; // 784 input, 256 hidden, 256 hidden, 10 output
     size_t num_layers = sizeof(layer_dims) / sizeof(layer_dims[0]);
-    size_t epochs = 50;
-    double learning_rate = 0.001;
+    size_t epochs = 100;
+    double learning_rate = 0.01;
 
     // Initialize weights and biases
     Matrix* weights[num_layers];
@@ -182,7 +183,7 @@ int main() {
 
     // Train
     fprintf(stdout, "Training...\n");
-    train(train_images, train_labels, layer_dims, num_layers, epochs, learning_rate);
+    train(train_images, train_labels, layer_dims, num_layers, epochs, learning_rate, 0.5, 5);
 
     // Test
     Matrix* test_activations[num_layers];
